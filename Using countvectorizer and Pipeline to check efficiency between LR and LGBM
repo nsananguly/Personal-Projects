@@ -1,0 +1,122 @@
+# 1st Phase libraries to be loaded
+import nltk
+import pandas as pd
+import numpy as np
+from pandas import read_csv
+from nltk.corpus import stopwords
+nltk.download('stopwords')
+from nltk.corpus import stopwords
+
+# Importing data from the data store
+
+from azureml.core import Workspace, Dataset
+
+subscription_id = '###########################3'
+resource_group = 'DS-Aj'
+workspace_name = 'TestML-nsananguly'
+
+workspace = Workspace(subscription_id, resource_group, workspace_name)
+
+dataset = Dataset.get_by_name(workspace, name='Att')
+fn = dataset.to_pandas_dataframe()
+
+#Selecting 'Short description','Product','Issue' and putting them into a data frame
+fn1 = fn[['Short description','Product','Issue']]
+fn2 = fn[['Short description','Issue']]
+fn3 = fn[['Short description','Product']]
+
+# Converting all the data to lower case
+fn1 = fn1.apply(lambda x : x.astype(str).str.lower())
+fn2 = fn2.apply(lambda x: x.astype(str).str.lower())
+fn3 = fn3.apply(lambda x: x.astype(str).str.lower())
+
+# Cleaning the hyphen and punchuation 
+fn1['Short description'] = fn1['Short description'].str.replace("[^\w\s]", "")
+fn2['Short description'] = fn2['Short description'].str.replace("[^\w\s]", "")
+fn3['Short description'] = fn3['Short description'].str.replace("[^\w\s]", "") 
+
+# Data cleaning - removing stop words
+
+stop = stopwords.words('english')
+
+fn1['withoutStopwords'] = fn1['Short description'].apply(lambda x : ' '.join([word for word in x.split() if word not in (stop)]))
+fn2['withoutStopwords'] = fn2['Short description'].apply(lambda x : ' '.join([word for word in x.split() if word not in (stop)]))
+fn3['withoutStopwords'] = fn3['Short description'].apply(lambda x : ' '.join([word for word in x.split() if word not in (stop)]))
+
+# Removing the 'Short description' column from the 3 data frames fn1,fn2,fn3
+fn1 = fn1.drop('Short description',axis=1)
+# fn2 has issues 
+fn2 = fn2.drop('Short description',axis=1)
+#fn3 has productfn3 = fn3.drop('Short description',axis=1)
+
+
+
+# The idea here is to create a numberical matrix where each word from the context in the withoutStopwords will form a row and 
+# columns would have their features. CountVectorizer would help us achieve that. But it depends on the definition of ngram in it
+# which would scale the number of columns. This would be on a trial and error to check how well the vocabulary of words will
+# be created.
+
+from sklearn.feature_extraction.text import CountVectorizer
+vect = CountVectorizer(analyzer='word', ngram_range=(1, 2))
+nf = vect.fit_transform(fn2.withoutStopwords)
+
+# Listing out the feature names
+vect.get_feature_names()
+
+# Shows how the array is going to be
+print(nf.toarray())
+
+# Converting scatter matrix to numpy array and saving it as a dataframe nf1(new frame1)
+nf1 = pd.DataFrame(nf.toarray())
+
+# Giving us an idea of how many issues are reflect to Product category
+fn3.groupby('Product').count()
+
+# Copying the Product column to the nf1 data frame
+nf1['Product'] = fn3.Product
+
+# Checking the data frame to see the product category is append to the data frame nf1
+nf1.head(5)
+
+
+# Will need to install xgboost 
+#pip install xgboost
+
+# Package importing that needs to be done for ML
+import lightgbm
+import matplotlib.pyplot as pt
+from pandas.plotting import scatter_matrix
+from pandas import set_option
+from sklearn.model_selection import cross_val_score,KFold,train_test_split,GridSearchCV
+from sklearn.metrics import confusion_matrix,accuracy_score,classification_report
+from sklearn.pipeline import Pipeline
+from sklearn.linear_model import LogisticRegression
+from xgboost import XGBClassifier
+from lightgbm import LGBMClassifier
+
+seed = 50
+x = nf1.iloc[:,0:34314]
+y = nf1.iloc[:,34314]
+validation_size = 0.30
+x_train,x_test,y_train,y_test = train_test_split(x,y,test_size=validation_size,random_state=seed)
+#num_folds = 3
+scoring = 'accuracy'
+
+ensembles =[]
+ensembles.append(('Logistic',LogisticRegression()))
+ensembles.append(('LGBM',LGBMClassifier()))
+
+results =[]
+names =[]
+
+for name,model in ensembles:
+    kfold = KFold(n_splits=5,random_state=seed)
+    cv_results = cross_val_score(model,x_train,y_train,cv=kfold,scoring= scoring)
+    results.append(cv_results)
+    names.append(name)
+    msg = "%s %f (%f)" % (name,cv_results.mean(),cv_results.std())
+    print(msg)
+	
+	
+	
+
